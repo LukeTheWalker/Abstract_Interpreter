@@ -3,6 +3,7 @@
 
 #include "parser.hpp"
 #include "ast.hpp"
+#include "abstract_interpeter.hpp"
 
 int main(int argc, char** argv) {
     if(argc != 2) {
@@ -22,5 +23,7 @@ int main(int argc, char** argv) {
     AbstractInterpreterParser AIParser;
     ASTNode ast = AIParser.parse(input);
     ast.print();
+    AbstractInterpreter interpreter;
+    interpreter.eval(ast);
     return 0;
 }

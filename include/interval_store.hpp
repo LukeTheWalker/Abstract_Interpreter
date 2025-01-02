@@ -1,64 +1,64 @@
-#ifndef ABSTRACT_INTERPRETER_INTERVAL_STORE_HPP
-#define ABSTRACT_INTERPRETER_INTERVAL_STORE_HPP
+// Updated interval_store.hpp
+#ifndef INTERVAL_STORE_HPP
+#define INTERVAL_STORE_HPP
 
 #include <map>
 #include <string>
-#include <iostream>
 #include "interval.hpp"
 
 template <typename T>
-class IntervalStore
-{
-public:
-    IntervalStore();
-    void add_interval(std::string var, T start, T end);
-    bool is_present(std::string var);
-    void remove_interval(std::string var);
-    void print_intervals();
-    void clear();
-
+class IntervalStore {
 private:
-    std::map<std::string, Interval> intervals;
+    std::map<std::string, Interval<T>> intervals;
+
+public:
+    IntervalStore() = default;
+
+    void update_interval(const std::string& var, const Interval<T>& interval) {
+        intervals[var] = interval;
+    }
+
+    Interval<T> get_interval(const std::string& var) const {
+        auto it = intervals.find(var);
+        if (it != intervals.end()) {
+            return it->second;
+        }
+        return Interval<T>(); // Return top interval
+    }
+
+    bool has_variable(const std::string& var) const {
+        return intervals.find(var) != intervals.end();
+    }
+
+    IntervalStore join(const IntervalStore& other) const {
+        IntervalStore result;
+        // Join all variables from both stores
+        for (const auto& [var, interval] : intervals) {
+            if (other.has_variable(var)) {
+                result.update_interval(var, interval.join(other.get_interval(var)));
+            } else {
+                result.update_interval(var, interval);
+            }
+        }
+        // Add variables that are only in other store
+        for (const auto& [var, interval] : other.intervals) {
+            if (!has_variable(var)) {
+                result.update_interval(var, interval);
+            }
+        }
+        return result;
+    }
+
+    void clear() {
+        intervals.clear();
+    }
+
+    void print() const {
+        for (const auto& [var, interval] : intervals) {
+            std::cout << var << " = [" << interval.getLower() 
+                     << ", " << interval.getUpper() << "]" << std::endl;
+        }
+    }
 };
 
-template <typename T>
-IntervalStore<T>::IntervalStore()
-{
-}
-
-template <typename T>
-void IntervalStore<T>::add_interval(std::string var, T start, T end)
-{
-    intervals[var] = Interval(start, end);
-}
-
-template <typename T>
-bool IntervalStore<T>::is_present(std::string var)
-{
-    return intervals.find(var) != intervals.end();
-}
-
-template <typename T>
-void IntervalStore<T>::remove_interval(std::string var)
-{
-    intervals.erase(var);
-}
-
-template <typename T>
-void IntervalStore<T>::print_intervals()
-{
-    for (auto const &pair : intervals)
-    {
-        std::cout << pair.first << ": " << pair.second << std::endl;
-    }
-}
-
-template <typename T>
-void IntervalStore<T>::clear()
-{
-    intervals.clear();
-}
-
-
-#endif // ABSTRACT_INTERPRETER_INTERVAL_STORE_HPP
-// Compare this snippet from include/intervals.hpp:
+#endif
