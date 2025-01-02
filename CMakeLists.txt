@@ -5,6 +5,10 @@ project(absint
     HOMEPAGE_URL "https://github.com/ptal/lattice-theory-parallel-programming-uni.lu"
     LANGUAGES CXX)
 
+# Enable debug symbols
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+
 # We use cpp-peglib to parse C programs.
 include(FetchContent)
 FetchContent_Declare(

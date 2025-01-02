@@ -69,15 +69,15 @@ public:
     }
 
     bool operator<=(const Interval& other) const {
-        return *this < other || *this == other;
+        return this->lower <= other.lower && this->upper <= other.upper;
     }
 
     bool operator>(const Interval& other) const {
-        return !(other < *this);
+        return this->lower > other.lower && this->upper > other.upper;
     }
 
     bool operator>=(const Interval& other) const {
-        return other > *this || *this == other;
+        return this->lower >= other.lower && this->upper >= other.upper;
     }
 
     // Getters

@@ -22,6 +22,7 @@ private:
     void evalIfElse(const ASTNode &node);
     void evalSequence(const ASTNode &node);
     void evalDeclaration(const ASTNode &node);
+    void evalPreCondition(const ASTNode &node);
     void evalPostCondition(const ASTNode &node);
     void checkDivisionByZero(const ASTNode &node);
     void checkOverflow(const Interval<int64_t> &result);
@@ -70,6 +71,9 @@ private:
             break;
         case NodeType::IFELSE:
             evalIfElse(node);
+            break;
+        case NodeType::PRE_CON: 
+            evalPreCondition(node);
             break;
         case NodeType::POST_CON:
             evalPostCondition(node);
@@ -137,22 +141,32 @@ bool AbstractInterpreter::evalLogicalExpr(const ASTNode &node)
     auto right = evalArithmeticExpr(node.children[1]);
     LogicOp op = std::get<LogicOp>(node.value);
 
+    bool result;
     switch (op)
     {
     case LogicOp::EQ:
-        return left == right;
+        result = left == right;
+        break;
     case LogicOp::NEQ:
-        return left != right;
+        result = left != right;
+        break;
     case LogicOp::LE:
-        return left < right;
+        result = left < right;
+        break;
     case LogicOp::LEQ:
-        return left <= right;
+        result = left <= right;
+        break;
     case LogicOp::GE:
-        return left > right;
+        result = left > right;
+        break;
     case LogicOp::GEQ:
-        return left >= right;
+        result = left >= right;
+        break;
+    default:
+        std::cerr << "Unsupported logical operation" << std::endl;
+        return false;
     }
-    return false;
+    return result;
 }
 
 // Handle declarations
@@ -218,6 +232,31 @@ void AbstractInterpreter::evalSequence(const ASTNode &node)
     }
 }
 
+// Implement pre-condition evaluation
+void AbstractInterpreter::evalPreCondition(const ASTNode &node) {
+    if (node.children.size() != 2) {  // Should have exactly two children: LB and UB
+        throw std::runtime_error("Invalid precondition");
+    }
+
+    // Get the variable from one of the logic operations (both contain the same variable)
+    std::string var = std::get<std::string>(node.children[0].children[1].value);
+    
+    // Get current interval
+    Interval<int64_t> current = store.get_interval(var);
+
+    // Process lower bound (<=)
+    int64_t lb = std::get<int>(node.children[0].children[0].value);
+    
+    // Process upper bound (>=)
+    int64_t ub = std::get<int>(node.children[1].children[0].value);
+
+    // Update the interval with both bounds
+    store.update_interval(var, Interval<int64_t>(lb, ub));
+    
+    std::cout << "Updated interval for " << var << ": [" 
+              << lb << ", " << ub << "]" << std::endl;
+}
+
 // Implement postcondition (assertion) evaluation
 void AbstractInterpreter::evalPostCondition(const ASTNode &node)
 {
@@ -229,7 +268,10 @@ void AbstractInterpreter::evalPostCondition(const ASTNode &node)
     if (!evalLogicalExpr(node.children[0]))
     {
         std::cerr << "Assertion might fail: " << std::endl;
+        // print the failed assertion
+        node.children[0].print();
         // Print the current store state for debugging
+        std::cout << "Current store state:" << std::endl;
         store.print();
     }
     else
