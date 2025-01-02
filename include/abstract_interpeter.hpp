@@ -117,7 +117,13 @@ Interval<int64_t> AbstractInterpreter::evalArithmeticExpr(const ASTNode &node)
             result = left + right;
             break;
         case BinOp::SUB:
-            result = left + (-right);
+            result = left - right;
+            break;
+        case BinOp::MUL:
+            result = left * right;
+            break;
+        case BinOp::DIV:
+            result = left / right;
             break;
         default:
             std::cerr << "Unsupported arithmetic operation" << std::endl;
@@ -172,14 +178,18 @@ bool AbstractInterpreter::evalLogicalExpr(const ASTNode &node)
 // Handle declarations
 void AbstractInterpreter::evalDeclaration(const ASTNode &node)
 {
-    if (node.children.size() != 1)
+    if (node.children.empty())
     {
-        throw std::runtime_error("Invalid declaration");
+        throw std::runtime_error("Invalid declaration: no variables to declare");
     }
 
-    std::string var = std::get<std::string>(node.children[0].value);
-    // Initialize with top interval
-    store.update_interval(var, Interval<int64_t>());
+    // Handle all variables in the declaration
+    for (const auto& child : node.children)
+    {
+        std::string var = std::get<std::string>(child.value);
+        // Initialize with top interval
+        store.update_interval(var, Interval<int64_t>());
+    }
 }
 
 // Implement assignment evaluation

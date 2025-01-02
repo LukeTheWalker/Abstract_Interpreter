@@ -55,6 +55,35 @@ public:
         return Interval(this->lower + other.lower, this->upper + other.upper);
     }
 
+    Interval operator-(const Interval& other) const {
+        return Interval(this->lower - other.upper, this->upper - other.lower);
+    }
+
+    Interval operator*(const Interval& other) const {
+        T a = this->lower * other.lower;
+        T b = this->lower * other.upper;
+        T c = this->upper * other.lower;
+        T d = this->upper * other.upper;
+        return Interval(
+            std::min({a, b, c, d}),
+            std::max({a, b, c, d})
+        );
+    }
+
+    Interval operator/(const Interval& other) const {
+        if (other.contains(0)) {
+            throw std::invalid_argument("Division by zero");
+        }
+        T a = this->lower / other.lower;
+        T b = this->lower / other.upper;
+        T c = this->upper / other.lower;
+        T d = this->upper / other.upper;
+        return Interval(
+            std::min({a, b, c, d}),
+            std::max({a, b, c, d})
+        );
+    }
+
     // Comparison Operations (C♯)
     bool operator<(const Interval& other) const {
         return this->lower < other.lower && this->upper < other.upper;
