@@ -208,26 +208,36 @@ void AbstractInterpreter::evalAssignment(const ASTNode &node)
 // Implement if-else evaluation
 void AbstractInterpreter::evalIfElse(const ASTNode &node)
 {
-    if (node.children.size() != 3)
+    if (node.children.size() < 2)
     {
-        throw std::runtime_error("Invalid if-else statement");
+        throw std::runtime_error("Invalid if-else statement: at least 2 children required");
     }
 
     Store true_branch = store;
     Store false_branch = store;
 
-    // Evaluate condition
-    bool condition = evalLogicalExpr(node.children[0]);
+    // Evaluate condition from the child logic node
+    bool condition = evalLogicalExpr(node.children[0].children[0]);
 
     // Evaluate true branch
     store = true_branch;
-    evalNode(node.children[1]);
+    for (const auto &child : node.children[1].children)
+    {
+        evalNode(child);
+    }
     Store after_true = store;
 
-    // Evaluate false branch
+    // Evaluate false branch (if any)
     store = false_branch;
-    evalNode(node.children[2]);
     Store after_false = store;
+    if (node.children.size() >= 3)
+    {
+        for (const auto &child : node.children[2].children)
+        {
+            evalNode(child);
+        }
+        after_false = store;
+    }
 
     // Join the results
     store = after_true.join(after_false);
