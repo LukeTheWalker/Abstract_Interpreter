@@ -79,6 +79,12 @@ struct ASTNode {
         }, value);
     }
 
+    static void printVariantType(const std::variant<std::string, int, BinOp, LogicOp>& value) {
+        std::visit([](const auto& v) {
+            std::cout << typeid(v).name() << std::endl;
+        }, value);
+    }
+
     void print(int depth = 0) const {
         std::string indent(depth * 2, ' ');
         std::cout << indent << "NodeType: " << type << ", Value: ";

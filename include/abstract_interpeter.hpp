@@ -102,7 +102,16 @@ Interval<int64_t> AbstractInterpreter::evalArithmeticExpr(const ASTNode &node)
     {
         auto left = evalArithmeticExpr(node.children[0]);
         auto right = evalArithmeticExpr(node.children[1]);
-        BinOp op = std::get<BinOp>(node.value);
+        BinOp op;
+        try {
+            op = std::get<BinOp>(node.value);
+        } catch (const std::bad_variant_access&) {
+            std::string op_str = std::get<std::string>(node.value);
+            op = op_str == "+" ? BinOp::ADD : 
+                 op_str == "-" ? BinOp::SUB : 
+                 op_str == "*" ? BinOp::MUL : 
+                 op_str == "/" ? BinOp::DIV : BinOp::ADD;
+        }
 
         // Check for division by zero
         if (op == BinOp::DIV)
@@ -147,26 +156,31 @@ bool AbstractInterpreter::evalLogicalExpr(const ASTNode &node)
     auto right = evalArithmeticExpr(node.children[1]);
     LogicOp op = std::get<LogicOp>(node.value);
 
+    int32_t left_lower = static_cast<int32_t>(left.getLower());
+    int32_t right_lower = static_cast<int32_t>(right.getLower());
+    int32_t left_upper = static_cast<int32_t>(left.getUpper());
+    int32_t right_upper = static_cast<int32_t>(right.getUpper());
+
     bool result;
     switch (op)
     {
     case LogicOp::EQ:
-        result = left == right;
+        result = (left_lower == right_lower) && (left_upper == right_upper);
         break;
     case LogicOp::NEQ:
-        result = left != right;
+        result = (left_lower != right_lower) || (left_upper != right_upper);
         break;
     case LogicOp::LE:
-        result = left < right;
+        result = left_upper < right_lower;
         break;
     case LogicOp::LEQ:
-        result = left <= right;
+        result = left_upper <= right_lower;
         break;
     case LogicOp::GE:
-        result = left > right;
+        result = left_lower > right_upper;
         break;
     case LogicOp::GEQ:
-        result = left >= right;
+        result = left_lower >= right_upper;
         break;
     default:
         std::cerr << "Unsupported logical operation" << std::endl;
@@ -313,8 +327,8 @@ void AbstractInterpreter::checkDivisionByZero(const ASTNode &node)
 // Check for integer overflow
 void AbstractInterpreter::checkOverflow(const Interval<int64_t> &result)
 {
-    if (result.getLower() == std::numeric_limits<int64_t>::lowest() ||
-        result.getUpper() == std::numeric_limits<int64_t>::max())
+    if (result.getLower() <= std::numeric_limits<int32_t>::lowest() ||
+        result.getUpper() >= std::numeric_limits<int32_t>::max())
     {
         std::cerr << "Warning: Possible integer overflow detected!" << std::endl;
     }

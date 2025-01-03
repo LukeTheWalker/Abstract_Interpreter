@@ -71,9 +71,6 @@ public:
     }
 
     Interval operator/(const Interval& other) const {
-        if (other.contains(0)) {
-            throw std::invalid_argument("Division by zero");
-        }
         T a = this->lower / other.lower;
         T b = this->lower / other.upper;
         T c = this->upper / other.lower;
