@@ -59,6 +59,14 @@ public:
                      << ", " << interval.getUpper() << "]" << std::endl;
         }
     }
+
+    bool operator==(const IntervalStore& other) const {
+        return intervals == other.intervals;
+    }
+
+    bool operator!=(const IntervalStore& other) const {
+        return intervals != other.intervals;
+    }
 };
 
 #endif

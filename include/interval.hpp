@@ -11,6 +11,7 @@ class Interval {
 private:
     T lower;
     T upper;
+    bool empty = false;
 
     // Validate that the interval is well-formed (lower <= upper)
     void validate() const {
@@ -25,25 +26,39 @@ public:
                  upper(std::numeric_limits<T>::max()) {}
 
     Interval(T l, T u) : lower(l), upper(u) {
-        validate();
+        //validate();
+    }
+
+    // Copy constructor
+    Interval(const Interval& other) : lower(other.lower), upper(other.upper) {}
+
+    // Assignment operator
+    Interval& operator=(const Interval& other) {
+        lower = other.lower;
+        upper = other.upper;
+        return *this;
     }
 
     // Lattice Operations
     
     // Join operation (least upper bound)
     Interval join(const Interval& other) const {
-        return Interval(
+        auto it = Interval(
             std::min(this->lower, other.lower),
             std::max(this->upper, other.upper)
         );
+        it.empty = this->empty && other.empty;
+        return it;
     }
 
     // Meet operation (greatest lower bound)
     Interval meet(const Interval& other) const {
-        return Interval(
+        auto it = Interval(
             std::max(this->lower, other.lower),
             std::min(this->upper, other.upper)
         );
+        it.empty = this->empty || other.empty;
+        return it;
     }
 
     // Arithmetic Operations (E♯)
@@ -120,14 +135,6 @@ public:
         return value >= lower && value <= upper;
     }
 
-    // Static method to create an empty interval
-    static Interval empty() {
-        return Interval(
-            std::numeric_limits<T>::max(), 
-            std::numeric_limits<T>::lowest()
-        );
-    }
-
     // Widening operator (for abstract interpretation)
     Interval widen(const Interval& other) const {
         T new_lower = (other.lower < this->lower) ? 
@@ -135,6 +142,15 @@ public:
         T new_upper = (other.upper > this->upper) ? 
             std::numeric_limits<T>::max() : this->upper;
         return Interval(new_lower, new_upper);
+    }
+
+    static Interval build_empty() {
+        auto it =  Interval(
+            std::numeric_limits<T>::max(), 
+            std::numeric_limits<T>::lowest()
+        );
+        it.empty = true;
+        return it;
     }
 };
 

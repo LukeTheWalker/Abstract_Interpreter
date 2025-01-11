@@ -24,6 +24,8 @@ int main(int argc, char** argv) {
     ASTNode ast = AIParser.parse(input);
     ast.print();
     AbstractInterpreter interpreter;
-    interpreter.eval(ast);
+    interpreter.create_top_locations(ast);
+    interpreter.eval_all();
+    interpreter.check_assertions(ast);
     return 0;
 }

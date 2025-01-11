@@ -8,85 +8,33 @@
 #include <memory>
 #include <stdexcept>
 #include <iostream>
+#include <functional>
 
-class AbstractInterpreter
+using Store = IntervalStore<int64_t>;
+
+LogicOp negate_logic_op(LogicOp op)
 {
-private:
-    using Store = IntervalStore<int64_t>;
-    Store store;
-
-    // Helper methods for evaluation
-    Interval<int64_t> evalArithmeticExpr(const ASTNode &node);
-    bool evalLogicalExpr(const ASTNode &node);
-    void evalAssignment(const ASTNode &node);
-    void evalIfElse(const ASTNode &node);
-    void evalSequence(const ASTNode &node);
-    void evalDeclaration(const ASTNode &node);
-    void evalPreCondition(const ASTNode &node);
-    void evalPostCondition(const ASTNode &node);
-    void checkDivisionByZero(const ASTNode &node);
-    void checkOverflow(const Interval<int64_t> &result);
-
-public:
-    AbstractInterpreter() = default;
-
-    void eval(const ASTNode &ast)
+    switch (op)
     {
-        try
-        {
-            // Handle the root node (which is an INTEGER node in the AST)
-            if (ast.type == NodeType::INTEGER)
-            {
-                // Process all child nodes
-                for (const auto &child : ast.children)
-                {
-                    evalNode(child);
-                }
-            }
-            else
-            {
-                // If not the root node, evaluate normally
-                evalNode(ast);
-            }
-        }
-        catch (const std::runtime_error &e)
-        {
-            std::cerr << "Analysis error: " << e.what() << std::endl;
-        }
+    case LogicOp::EQ:
+        return LogicOp::NEQ;
+    case LogicOp::NEQ:
+        return LogicOp::EQ;
+    case LogicOp::LE:
+        return LogicOp::GEQ;
+    case LogicOp::LEQ:
+        return LogicOp::GE;
+    case LogicOp::GE:
+        return LogicOp::LEQ;
+    case LogicOp::GEQ:
+        return LogicOp::LE;
+    default:
+        std::cerr << "Unsupported logical operation" << std::endl;
+        return LogicOp::EQ;
     }
+}
 
-private:
-    void evalNode(const ASTNode &node)
-    {
-        switch (node.type)
-        {
-        case NodeType::DECLARATION:
-            evalDeclaration(node);
-            break;
-        case NodeType::SEQUENCE:
-            evalSequence(node);
-            break;
-        case NodeType::ASSIGNMENT:
-            evalAssignment(node);
-            break;
-        case NodeType::IFELSE:
-            evalIfElse(node);
-            break;
-        case NodeType::PRE_CON: 
-            evalPreCondition(node);
-            break;
-        case NodeType::POST_CON:
-            evalPostCondition(node);
-            break;
-        default:
-            std::cout << "Unhandled node type: " << static_cast<int>(node.type) << std::endl;
-            break;
-        }
-    }
-};
-
-// Implement arithmetic expression evaluation
-Interval<int64_t> AbstractInterpreter::evalArithmeticExpr(const ASTNode &node)
+Interval<int64_t> evalArithmeticExpr(const ASTNode &node, const Store& store)
 {
     if (node.type == NodeType::INTEGER)
     {
@@ -100,8 +48,8 @@ Interval<int64_t> AbstractInterpreter::evalArithmeticExpr(const ASTNode &node)
     }
     else if (node.type == NodeType::ARITHM_OP)
     {
-        auto left = evalArithmeticExpr(node.children[0]);
-        auto right = evalArithmeticExpr(node.children[1]);
+        auto left = evalArithmeticExpr(node.children[0], store);
+        auto right = evalArithmeticExpr(node.children[1], store);
         BinOp op;
         try {
             op = std::get<BinOp>(node.value);
@@ -111,12 +59,6 @@ Interval<int64_t> AbstractInterpreter::evalArithmeticExpr(const ASTNode &node)
                  op_str == "-" ? BinOp::SUB : 
                  op_str == "*" ? BinOp::MUL : 
                  op_str == "/" ? BinOp::DIV : BinOp::ADD;
-        }
-
-        // Check for division by zero
-        if (op == BinOp::DIV)
-        {
-            checkDivisionByZero(node);
         }
 
         Interval<int64_t> result;
@@ -138,200 +80,335 @@ Interval<int64_t> AbstractInterpreter::evalArithmeticExpr(const ASTNode &node)
             std::cerr << "Unsupported arithmetic operation" << std::endl;
             return Interval<int64_t>();
         }
-        checkOverflow(result);
         return result;
     }
     throw std::runtime_error("Invalid arithmetic expression");
 }
 
-// Implement logical expression evaluation
-bool AbstractInterpreter::evalLogicalExpr(const ASTNode &node)
+Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
 {
+    std::cout << "Evaluating logical expression" << std::endl;
+
     if (node.type != NodeType::LOGIC_OP)
     {
         throw std::runtime_error("Expected logical operation");
     }
 
-    auto left = evalArithmeticExpr(node.children[0]);
-    auto right = evalArithmeticExpr(node.children[1]);
+    std::cout << "logic store: " << std::endl;
+    store.print();
+
+    auto left = evalArithmeticExpr(node.children[0], store);
+    auto right = evalArithmeticExpr(node.children[1], store);
     LogicOp op = std::get<LogicOp>(node.value);
 
-    int32_t left_lower = static_cast<int32_t>(left.getLower());
-    int32_t right_lower = static_cast<int32_t>(right.getLower());
-    int32_t left_upper = static_cast<int32_t>(left.getUpper());
-    int32_t right_upper = static_cast<int32_t>(right.getUpper());
+    int32_t left_lower = static_cast<int32_t>(left.getLower() == std::numeric_limits<int64_t>::lowest() ? std::numeric_limits<int32_t>::lowest() : left.getLower());
+    int32_t right_lower = static_cast<int32_t>(right.getLower() == std::numeric_limits<int64_t>::lowest() ? std::numeric_limits<int32_t>::lowest() : right.getLower());
+    int32_t left_upper = static_cast<int32_t>(left.getUpper() == std::numeric_limits<int64_t>::max() ? std::numeric_limits<int32_t>::max() : left.getUpper());
+    int32_t right_upper = static_cast<int32_t>(right.getUpper() == std::numeric_limits<int64_t>::max() ? std::numeric_limits<int32_t>::max() : right.getUpper());
 
-    bool result;
+    Interval<int64_t> result;
+
+    std::cout << "OP type: " << op << std::endl;
+
     switch (op)
     {
     case LogicOp::EQ:
-        result = (left_lower == right_lower) && (left_upper == right_upper);
+        // Return the intersection of the intervals
+        result = Interval<int64_t>(
+            std::max(left_lower, right_lower),
+            std::min(left_upper, right_upper)
+        );
         break;
+
     case LogicOp::NEQ:
-        result = (left_lower != right_lower) || (left_upper != right_upper);
+        {
+            Interval<int64_t> intersection(
+                std::max(left_lower, right_lower),
+                std::min(left_upper, right_upper)
+            );
+
+            // If the intervals overlap by exactly one value and that value equals
+            // the entire left interval, return empty; otherwise keep the left interval.
+            if (intersection.getLower() == intersection.getUpper() &&
+                left.getLower() == left.getUpper() &&
+                intersection.getLower() == left.getLower())
+            {
+                result = Interval<int64_t>::build_empty();
+            }
+            else
+            {
+                // If there's more than one point to exclude (would split the interval),
+                // or no overlap, just keep the original left interval as an approximation.
+                result = left;
+            }
+        }
         break;
+
     case LogicOp::LE:
-        result = left_upper < right_lower;
+        // x < y: Return all x values that are less than the maximum y
+        result = Interval<int64_t>(
+            left_lower,
+            right_upper - 1
+        );
         break;
+
     case LogicOp::LEQ:
-        result = left_upper <= right_lower;
+        // x <= y: Return all x values that are less than or equal to the maximum y
+        result = Interval<int64_t>(
+            left_lower,
+            right_upper
+        );
         break;
+
     case LogicOp::GE:
-        result = left_lower > right_upper;
+        // x > y: Return all x values that are greater than the minimum y
+        result = Interval<int64_t>(
+            right_lower + 1,
+            left_upper
+        );
         break;
+
     case LogicOp::GEQ:
-        result = left_lower >= right_upper;
+        // x >= y: Return all x values that are greater than or equal to the minimum y
+        result = Interval<int64_t>(
+            right_lower,
+            left_upper
+        );
         break;
+
     default:
-        std::cerr << "Unsupported logical operation" << std::endl;
-        return false;
+        throw std::runtime_error("Unsupported logical operation");
     }
+
     return result;
 }
 
-// Handle declarations
-void AbstractInterpreter::evalDeclaration(const ASTNode &node)
-{
-    if (node.children.empty())
-    {
-        throw std::runtime_error("Invalid declaration: no variables to declare");
+class location {
+public:
+    Store store;
+    std::vector<const Store*> deps;
+    location(const Store &store, const std::vector<const Store*> &deps) : store(store), deps(deps) {}
+    virtual bool eval() = 0;
+    virtual ~location() = default;
+};
+
+class declaration_location : public location {
+public:
+    declaration_location(const Store &store, const std::vector<const Store*> &deps) : location(store, deps) {}
+    bool eval() override { std::cout << "Evaluating declaration" << std::endl; return true; }
+};
+
+class assignment_location : public location {
+    const ASTNode& node;
+public:
+    assignment_location(const ASTNode& node, const Store &store, const std::vector<const Store*> &deps)
+        : location(store, deps), node(node) {}
+
+    bool eval() override { 
+        std::string var = std::get<std::string>(node.children[0].value);
+        Interval<int64_t> value = evalArithmeticExpr(node.children[1], *(deps[0]));
+        std::cout << "Evaluating assignment: " << var << " = [" << value.getLower() << ", " << value.getUpper() << "]" << std::endl;
+        auto new_store = assignment_eq(var, value);
+        bool changed = (store == new_store);
+        store = new_store;
+        return changed; 
     }
 
-    // Handle all variables in the declaration
-    for (const auto& child : node.children)
-    {
-        std::string var = std::get<std::string>(child.value);
-        // Initialize with top interval
-        store.update_interval(var, Interval<int64_t>());
+    Store assignment_eq (const std::string &var, const Interval<int64_t> &value) {
+        Store new_store = *(deps[0]);
+        new_store.update_interval(var, value);
+        return new_store;
     }
-}
+};
 
-// Implement assignment evaluation
-void AbstractInterpreter::evalAssignment(const ASTNode &node)
-{
-    if (node.children.size() != 2)
-    {
-        throw std::runtime_error("Invalid assignment");
-    }
+class precondition_location : public location {
+    const ASTNode &node;
+public:
+    precondition_location(const ASTNode &node, const Store &store, const std::vector<const Store*> &deps)
+        : location(store, deps), node(node) {}
 
-    std::string var = std::get<std::string>(node.children[0].value);
-    Interval<int64_t> value = evalArithmeticExpr(node.children[1]);
-    store.update_interval(var, value);
-}
-
-// Implement if-else evaluation
-void AbstractInterpreter::evalIfElse(const ASTNode &node)
-{
-    if (node.children.size() < 2)
-    {
-        throw std::runtime_error("Invalid if-else statement: at least 2 children required");
-    }
-
-    Store true_branch = store;
-    Store false_branch = store;
-
-    // Evaluate condition from the child logic node
-    bool condition = evalLogicalExpr(node.children[0].children[0]);
-
-    // Evaluate true branch
-    store = true_branch;
-    for (const auto &child : node.children[1].children)
-    {
-        evalNode(child);
-    }
-    Store after_true = store;
-
-    // Evaluate false branch (if any)
-    store = false_branch;
-    Store after_false = store;
-    if (node.children.size() >= 3)
-    {
-        for (const auto &child : node.children[2].children)
-        {
-            evalNode(child);
+    bool eval() override {
+        Store new_store = *(deps[0]);
+        if (node.children.size() != 2) {
+            throw std::runtime_error("Invalid precondition");
         }
-        after_false = store;
+        std::string var = std::get<std::string>(node.children[0].children[1].value);
+        int64_t lb = std::get<int>(node.children[0].children[0].value);
+        int64_t ub = std::get<int>(node.children[1].children[0].value);
+        new_store.update_interval(var, Interval<int64_t>(lb, ub));
+        bool changed = (store == new_store);
+        store = new_store;
+        return changed;
     }
+};
 
-    // Join the results
-    store = after_true.join(after_false);
-}
+class preif_location : public location {
+    const ASTNode &node;
+    const std::string var;
+    const ASTNode logic_node;
+public:
+    preif_location(const ASTNode &logic_node, const std::string &var, const ASTNode &node, const Store &store, const std::vector<const Store*> &deps) 
+        : location(store, deps), logic_node(logic_node), var(var), node(node) {}
 
-// Implement sequence evaluation
-void AbstractInterpreter::evalSequence(const ASTNode &node)
+    bool eval() override {
+        Store new_store = *(deps[0]);
+
+        std::cout << "If store pre: " << std::endl;
+        new_store.print();
+
+        new_store.update_interval(var, evalLogicalExpr(logic_node, new_store)); 
+
+        std::cout << "If store post: " << std::endl;
+        new_store.print();
+
+        bool changed = (store == new_store);
+        store = new_store;
+        return changed;
+    }
+};
+
+class ifelse_location : public location {
+std::shared_ptr<location> iflocation;
+std::shared_ptr<location> elselocation;
+public:
+    ifelse_location (std::shared_ptr<location>& iflocation, std::shared_ptr<location>& elselocation, const Store &store, const std::vector<const Store*> &deps) : location(store, deps), iflocation(iflocation), elselocation(elselocation) {}
+    bool eval() {
+        Store new_store = iflocation->store.join(elselocation->store);
+        bool changed = (store == new_store);
+        store = new_store;
+        return changed;
+    }
+};
+
+class AbstractInterpreter
 {
-    for (const auto &child : node.children)
-    {
-        evalNode(child);
+private:
+    using Store = IntervalStore<int64_t>;
+    std::vector<std::shared_ptr<location>> locations;
+    bool end = false;
+    uint32_t iteration = 0;
+
+public:
+    AbstractInterpreter() = default;
+
+    void create_top_locations(const ASTNode& ast) {
+        locations.push_back(std::make_shared<declaration_location>(Store(), std::vector<const Store*>{}));
+        for (const auto& top_level_child : ast.children) {
+            if (top_level_child.type == NodeType::DECLARATION) {
+                for (const auto& child : top_level_child.children) {
+                    std::string var = std::get<std::string>(child.value);
+                    locations[0]->store.update_interval(var, Interval<int64_t>());
+                }
+            }
+            else if (top_level_child.type == NodeType::SEQUENCE)
+                for (const auto& child : top_level_child.children) create_locations(child, locations.size() - 1);
+            }
+        }
+
+
+    void create_locations(const ASTNode& ast, size_t i) {
+        std::cout << "store at location: " << i << std::endl;
+        locations[i]->store.print();
+        if (ast.type == NodeType::ASSIGNMENT) {
+            locations.push_back(std::make_shared<assignment_location>(
+                ast,
+                locations[i]->store, 
+                std::vector<const Store*>{&(locations[i]->store)}
+            ));
+        }
+        else if (ast.type == NodeType::PRE_CON) {
+            locations.push_back(std::make_shared<precondition_location>(
+                ast, 
+                locations[i]->store, 
+                std::vector<const Store*>{&(locations[i]->store)}
+            ));
+        }
+        else if (ast.type == NodeType::IFELSE) {
+            std::cout << "If-else statement found" << std::endl;
+
+            Store if_store = locations[i]->store;
+
+            auto logic_node = ast.children[0].children[0];
+
+            auto variable_node = logic_node.children[0];
+
+            std::cout << "If store pre: " << std::endl;
+            if_store.print();
+
+            // if (variable_node.type == NodeType::VARIABLE)
+            // {
+            //     std::string var = std::get<std::string>(variable_node.value);
+            //     if_store.update_interval(var, evalLogicalExpr(logic_node, if_store)); 
+            // }
+            // else std::cerr << "Found Condition without specified variable";
+
+            std::cout << "If store post: " << std::endl;
+            if_store.print();
+
+            locations.push_back(std::make_shared<preif_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[1].children[0], if_store, std::vector<const Store*>{&(locations[i]->store)}));
+            create_locations(ast.children[1].children[0], locations.size() - 1);
+
+            auto iflocation = locations.back();
+
+            Store else_store = locations[i]->store;
+
+            if (ast.children.size() == 3) 
+                logic_node.value = negate_logic_op(std::get<LogicOp> (logic_node.value));
+            
+            if (ast.children.size() == 3)
+                locations.push_back(std::make_shared<preif_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[2].children[0], else_store, std::vector<const Store*>{&(locations[i]->store)}));
+            else 
+                locations.push_back(std::make_shared<declaration_location>(else_store, std::vector<const Store*>{}));
+
+            if (ast.children.size() == 3) 
+                create_locations(ast.children[2].children[0], locations.size() - 1);
+
+            auto elselocation = locations.back();
+
+            locations.push_back(std::make_shared<ifelse_location>(iflocation, elselocation, locations[i]->store, std::vector<const Store*>{}));
+
+        }
+        else if (ast.type == NodeType::POST_CON) std::cout << "Post condition found" << std::endl;
+        else { std::cerr << "Unsupported node type" << ": " << ast.type << std::endl; std::cout << "Skipping..." << std::endl; ast.print(); }
     }
-}
 
-// Implement pre-condition evaluation
-void AbstractInterpreter::evalPreCondition(const ASTNode &node) {
-    if (node.children.size() != 2) {  // Should have exactly two children: LB and UB
-        throw std::runtime_error("Invalid precondition");
+    void eval_all(){
+        while (!end){
+            std::cout << "Iteration " << iteration << std::endl;
+            end = true;
+            for (size_t i = 0; i < locations.size(); ++i) {
+                std::cout << "Evaluating location " << i << "..." << std::endl;
+                auto &loc = locations[i];
+                end = loc->eval() && end;
+                loc->store.print();
+            }
+            iteration++;
+        }
+        std::cout << "Fixed point reached after " << iteration - 1 << " iterations" << std::endl;
     }
 
-    // Get the variable from one of the logic operations (both contain the same variable)
-    std::string var = std::get<std::string>(node.children[0].children[1].value);
-    
-    // Get current interval
-    Interval<int64_t> current = store.get_interval(var);
-
-    // Process lower bound (<=)
-    int64_t lb = std::get<int>(node.children[0].children[0].value);
-    
-    // Process upper bound (>=)
-    int64_t ub = std::get<int>(node.children[1].children[0].value);
-
-    // Update the interval with both bounds
-    store.update_interval(var, Interval<int64_t>(lb, ub));
-    
-    std::cout << "Updated interval for " << var << ": [" 
-              << lb << ", " << ub << "]" << std::endl;
-}
-
-// Implement postcondition (assertion) evaluation
-void AbstractInterpreter::evalPostCondition(const ASTNode &node)
-{
-    if (node.children.empty())
-    {
-        throw std::runtime_error("Invalid assertion");
-    }
-
-    if (!evalLogicalExpr(node.children[0]))
-    {
-        std::cerr << "Assertion might fail: " << std::endl;
-        // print the failed assertion
-        node.children[0].print();
-        // Print the current store state for debugging
-        std::cout << "Current store state:" << std::endl;
+    void check_assertions(const ASTNode& ast){
+        if (locations.empty()){ std::cerr << "No locations to check assertions" << std::endl; return; }
+        Store store = locations.back()->store;
+        const auto &seq = ast.children.back();
+        for (const auto &child : seq.children){
+            if (child.type == NodeType::POST_CON){
+                const auto& assertion_interval = evalLogicalExpr(child.children[0], store);
+                if (assertion_interval.getLower() > assertion_interval.getUpper()){
+                    std::cerr << "Assertion might fail: " << std::endl;
+                    child.children[0].print();
+                    std::cout << "Current store state:" << std::endl;
+                    store.print();
+                }
+                else
+                {
+                    std::cout << "Assertion verified successfully" << std::endl;
+                }
+            }
+        }
+        std::cout << "Final store state:" << std::endl;
         store.print();
     }
-    else
-    {
-        std::cout << "Assertion verified successfully" << std::endl;
-    }
-}
-
-// Check for division by zero
-void AbstractInterpreter::checkDivisionByZero(const ASTNode &node)
-{
-    auto divisor = evalArithmeticExpr(node.children[1]);
-    if (divisor.contains(0))
-    {
-        std::cerr << "Warning: Possible division by zero detected!" << std::endl;
-    }
-}
-
-// Check for integer overflow
-void AbstractInterpreter::checkOverflow(const Interval<int64_t> &result)
-{
-    if (result.getLower() <= std::numeric_limits<int32_t>::lowest() ||
-        result.getUpper() >= std::numeric_limits<int32_t>::max())
-    {
-        std::cerr << "Warning: Possible integer overflow detected!" << std::endl;
-    }
-}
+};
 
 #endif
