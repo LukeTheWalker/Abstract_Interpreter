@@ -64,38 +64,72 @@ Interval<int64_t> evalArithmeticExpr(const ASTNode &node, const Store& store)
         Interval<int64_t> result;
         switch(op)
         {
-        case BinOp::ADD:
-            result = left + right;
-            break;
-        case BinOp::SUB:
-            result = left - right;
-            break;
-        case BinOp::MUL:
-            result = left * right;
-            break;
-        case BinOp::DIV:
-            result = left / right;
-            break;
-        default:
-            std::cerr << "Unsupported arithmetic operation" << std::endl;
-            return Interval<int64_t>();
+            case BinOp::ADD:
+            {
+                // Simple overflow check for intervals (clamp seen as a conservative approximation):
+                if ((left.getLower() <= std::numeric_limits<int32_t>::lowest() && right.getLower() < 0) ||
+                    (left.getUpper() >= std::numeric_limits<int32_t>::max() && right.getUpper() > 0)) {
+                    std::cerr << "Warning: potential ADD overflow detected, clamping." << std::endl;
+                }
+                result = left + right;
+                break;
+            }
+            case BinOp::SUB:
+            {
+                // Similar check for SUB:
+                if ((left.getLower() <= std::numeric_limits<int32_t>::lowest() && right.getUpper() > 0) ||
+                    (left.getUpper() >= std::numeric_limits<int32_t>::max() && right.getLower() < 0)) {
+                    std::cerr << "Warning: potential SUB overflow detected, clamping." << std::endl;
+                }
+                result = left - right;
+                break;
+            }
+            case BinOp::MUL:
+            {
+                // Check if either interval spans large values that could overflow:
+                if ((std::abs(left.getLower()) >= std::numeric_limits<int32_t>::max() &&
+                    std::abs(right.getLower()) > 1) ||
+                    (std::abs(left.getUpper()) >= std::numeric_limits<int32_t>::max() &&
+                    std::abs(right.getUpper()) > 1)) {
+                    std::cerr << "Warning: potential MUL overflow detected, clamping." << std::endl;
+                }
+                result = left * right;
+                break;
+            }
+            case BinOp::DIV:
+            {
+                // Division by zero check:
+                if (right.contains(0)) {
+                    std::cerr << "Warning: division by zero detected, clamping result to full range." << std::endl;
+                    result = Interval<int64_t>(
+                        std::numeric_limits<int64_t>::lowest(),
+                        std::numeric_limits<int64_t>::max()
+                    );
+                }
+                else {
+                    result = left / right;
+                }
+                break;
+            }
+            default:
+                std::cerr << "Unsupported arithmetic operation" << std::endl;
+                return Interval<int64_t>();
         }
         return result;
     }
-    throw std::runtime_error("Invalid arithmetic expression");
+    else
+    {
+        throw std::runtime_error("Unsupported node type");
+    }   
 }
+
 
 Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
 {
-    std::cout << "Evaluating logical expression" << std::endl;
-
     if (node.type != NodeType::LOGIC_OP)
     {
         throw std::runtime_error("Expected logical operation");
     }
-
-    std::cout << "logic store: " << std::endl;
-    store.print();
 
     auto left = evalArithmeticExpr(node.children[0], store);
     auto right = evalArithmeticExpr(node.children[1], store);
@@ -107,8 +141,6 @@ Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
     int32_t right_upper = static_cast<int32_t>(right.getUpper() == std::numeric_limits<int64_t>::max() ? std::numeric_limits<int32_t>::max() : right.getUpper());
 
     Interval<int64_t> result;
-
-    std::cout << "OP type: " << op << std::endl;
 
     switch (op)
     {
@@ -253,13 +285,7 @@ public:
     bool eval() override {
         Store new_store = *(deps[0]);
 
-        std::cout << "If store pre: " << std::endl;
-        new_store.print();
-
         new_store.update_interval(var, evalLogicalExpr(logic_node, new_store)); 
-
-        std::cout << "If store post: " << std::endl;
-        new_store.print();
 
         bool changed = (store == new_store);
         store = new_store;
@@ -307,8 +333,6 @@ public:
 
 
     void create_locations(const ASTNode& ast, size_t i) {
-        std::cout << "store at location: " << i << std::endl;
-        locations[i]->store.print();
         if (ast.type == NodeType::ASSIGNMENT) {
             locations.push_back(std::make_shared<assignment_location>(
                 ast,
@@ -324,26 +348,11 @@ public:
             ));
         }
         else if (ast.type == NodeType::IFELSE) {
-            std::cout << "If-else statement found" << std::endl;
-
             Store if_store = locations[i]->store;
 
             auto logic_node = ast.children[0].children[0];
 
             auto variable_node = logic_node.children[0];
-
-            std::cout << "If store pre: " << std::endl;
-            if_store.print();
-
-            // if (variable_node.type == NodeType::VARIABLE)
-            // {
-            //     std::string var = std::get<std::string>(variable_node.value);
-            //     if_store.update_interval(var, evalLogicalExpr(logic_node, if_store)); 
-            // }
-            // else std::cerr << "Found Condition without specified variable";
-
-            std::cout << "If store post: " << std::endl;
-            if_store.print();
 
             locations.push_back(std::make_shared<preif_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[1].children[0], if_store, std::vector<const Store*>{&(locations[i]->store)}));
             create_locations(ast.children[1].children[0], locations.size() - 1);
