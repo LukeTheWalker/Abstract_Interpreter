@@ -142,6 +142,10 @@ Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
 
     Interval<int64_t> result;
 
+    // print the intervals
+    std::cout << "Left: [" << left_lower << ", " << left_upper << "]" << std::endl;
+    std::cout << "Right: [" << right_lower << ", " << right_upper << "]" << std::endl;
+
     switch (op)
     {
     case LogicOp::EQ:
@@ -180,7 +184,7 @@ Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
         // x < y: Return all x values that are less than the maximum y
         result = Interval<int64_t>(
             left_lower,
-            right_upper - 1
+            left_upper < right_upper ? left_upper : right_upper - 1
         );
         break;
 
@@ -188,14 +192,14 @@ Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
         // x <= y: Return all x values that are less than or equal to the maximum y
         result = Interval<int64_t>(
             left_lower,
-            right_upper
+            left_upper < right_upper ? left_upper : right_upper
         );
         break;
 
     case LogicOp::GE:
         // x > y: Return all x values that are greater than the minimum y
         result = Interval<int64_t>(
-            right_lower + 1,
+            left_lower > right_lower ? left_lower : right_lower + 1,
             left_upper
         );
         break;
@@ -203,7 +207,7 @@ Interval<int64_t> evalLogicalExpr(const ASTNode &node, const Store& store)
     case LogicOp::GEQ:
         // x >= y: Return all x values that are greater than or equal to the minimum y
         result = Interval<int64_t>(
-            right_lower,
+            left_lower > right_lower ? left_lower : right_lower,
             left_upper
         );
         break;
@@ -285,7 +289,8 @@ public:
     bool eval() override {
         Store new_store = *(deps[0]);
 
-        new_store.update_interval(var, evalLogicalExpr(logic_node, new_store)); 
+        // new_store.update_interval(var, evalLogicalExpr(logic_node, new_store)); 
+        new_store.update_interval(var, evalLogicalExpr(logic_node, new_store).meet(new_store.get_interval(var)));
 
         bool changed = (store == new_store);
         store = new_store;
@@ -305,6 +310,63 @@ public:
         return changed;
     }
 };
+
+class prewhile_location : public location {
+    const ASTNode &node;
+    const std::string var;
+    const ASTNode logic_node;
+    bool first = true;
+public:
+    Store *postwhile_store;
+
+    prewhile_location(const ASTNode &logic_node, const std::string &var, const ASTNode &node, const Store &store, const std::vector<const Store*> &deps)
+        : location(store, deps), logic_node(logic_node), var(var), node(node) {}
+
+    bool eval() override {
+        Store new_store = *(deps[0]);
+
+        if (first) first = false;
+        else new_store = new_store.join(*postwhile_store);
+
+        new_store.update_interval(var, evalLogicalExpr(logic_node, new_store).meet(new_store.get_interval(var)));
+
+        bool changed = (store == new_store);
+        store = new_store;
+        return changed;
+    }
+};
+
+class postwhile_location : public location {
+    const ASTNode &node;
+    const std::string var;
+    ASTNode logic_node;
+public:
+
+    postwhile_location(const ASTNode &logic_node, const std::string &var, const ASTNode &node, const Store &store, const std::vector<const Store*> &deps)
+        : location(store, deps), logic_node(logic_node), var(var), node(node) {
+            // negate the logic node
+            this->logic_node.value = negate_logic_op(std::get<LogicOp>(logic_node.value));
+        }
+
+    bool eval() override {
+        Store new_store = *(deps[0]);
+
+        std::cout << "Logical expression: " << std::get<LogicOp>(logic_node.value) << std::endl;
+
+        std::cout << "prestore: " << std::endl;
+        new_store.print();
+
+        new_store.update_interval(var, evalLogicalExpr(logic_node, new_store).meet(new_store.get_interval(var)));
+
+        std::cout << "poststore: " << std::endl;
+        new_store.print();
+
+        bool changed = (store == new_store);
+        store = new_store;
+        return changed;
+    }
+};
+
 
 class AbstractInterpreter
 {
@@ -366,8 +428,6 @@ public:
             
             if (ast.children.size() == 3)
                 locations.push_back(std::make_shared<preif_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[2].children[0], else_store, std::vector<const Store*>{&(locations[i]->store)}));
-            else 
-                locations.push_back(std::make_shared<declaration_location>(else_store, std::vector<const Store*>{}));
 
             if (ast.children.size() == 3) 
                 create_locations(ast.children[2].children[0], locations.size() - 1);
@@ -375,6 +435,18 @@ public:
             auto elselocation = locations.back();
 
             locations.push_back(std::make_shared<ifelse_location>(iflocation, elselocation, locations[i]->store, std::vector<const Store*>{}));
+
+        }
+        else if (ast.type == NodeType::WHILELOOP){
+            Store while_store = locations[i]->store;
+            auto logic_node = ast.children[0].children[0];
+            auto variable_node = logic_node.children[0];
+            locations.push_back(std::make_shared<prewhile_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[1].children[0], while_store, std::vector<const Store*>{&(locations[i]->store)}));
+            auto whilelocation = locations.back();
+            create_locations(ast.children[1].children[0], locations.size() - 1);
+            auto postwhile_store = locations.back();
+            std::dynamic_pointer_cast<prewhile_location>(whilelocation)->postwhile_store = &(postwhile_store->store);
+            locations.push_back(std::make_shared<postwhile_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[1].children[0], while_store, std::vector<const Store*>{&(locations.back()->store)}));
 
         }
         else if (ast.type == NodeType::POST_CON) std::cout << "Post condition found" << std::endl;
