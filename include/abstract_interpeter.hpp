@@ -321,19 +321,31 @@ public:
 
     prewhile_location(const ASTNode &logic_node, const std::string &var, const ASTNode &node, const Store &store, const std::vector<const Store*> &deps)
         : location(store, deps), logic_node(logic_node), var(var), node(node) {}
-
     bool eval() override {
         Store new_store = *(deps[0]);
 
         if (first) first = false;
         else new_store = new_store.join(*postwhile_store);
 
-        new_store.update_interval(var, evalLogicalExpr(logic_node, new_store).meet(new_store.get_interval(var)));
+        // Widening
+        {
+            Interval<int64_t> old_iv = store.get_interval(var);
+            Interval<int64_t> joined_iv = new_store.get_interval(var);
+            int64_t widened_lower = (old_iv.getLower() > joined_iv.getLower()) ? std::numeric_limits<int64_t>::lowest() : old_iv.getLower();
+            int64_t widened_upper = (old_iv.getUpper() < joined_iv.getUpper()) ? std::numeric_limits<int64_t>::max() : old_iv.getUpper();
+            new_store.update_interval(var, Interval<int64_t>(widened_lower, widened_upper));
+        }
+
+        new_store.update_interval(
+            var,
+            evalLogicalExpr(logic_node, new_store).meet(new_store.get_interval(var))
+        );
 
         bool changed = (store == new_store);
         store = new_store;
         return changed;
-    }
+        }
+
 };
 
 class postwhile_location : public location {
@@ -449,12 +461,14 @@ public:
             locations.push_back(std::make_shared<postwhile_location>(logic_node, std::get<std::string>(variable_node.value), ast.children[1].children[0], while_store, std::vector<const Store*>{&(locations.back()->store)}));
 
         }
+        else if (ast.type == NodeType::SEQUENCE) for (const auto& child : ast.children) create_locations(child, locations.size() - 1);
         else if (ast.type == NodeType::POST_CON) std::cout << "Post condition found" << std::endl;
         else { std::cerr << "Unsupported node type" << ": " << ast.type << std::endl; std::cout << "Skipping..." << std::endl; ast.print(); }
     }
 
     void eval_all(){
         while (!end){
+            std::cin.get();
             std::cout << "Iteration " << iteration << std::endl;
             end = true;
             for (size_t i = 0; i < locations.size(); ++i) {
